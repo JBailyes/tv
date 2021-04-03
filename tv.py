@@ -1,17 +1,20 @@
-#!/bin/env python3
+#!/bin/env python3.9
 
 import argparse
 import requests
 import json
 import re
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('---tomorrow', action='store_true')
 args = arg_parser.parse_args()
 
-today = datetime.now().replace(hour=0, minute=0, second=0)
+london = ZoneInfo('Europe/London')
+
+today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
 
 start_time = today
 if args.tomorrow:
@@ -24,6 +27,11 @@ req = requests.get('https://www.freeview.co.uk/api/tv-guide', params={
     'nid': region_id,
     'start': int(start_time.timestamp())
 })
+
+if not req.ok:
+    print(req.status_code, req.reason)
+    print(req.text)
+    exit(1)
 
 guide = req.json()
 
@@ -63,6 +71,8 @@ guide = req.json()
 channel_ignore = [re.compile(regex) for regex in [
     r' HD$',
     r'\+1$',
+    r'Radio',
+    r'BBC [56]',
 ]]
 programme_words = [re.compile(regex) for regex in [
     r'Peter Rabbit',
@@ -73,6 +83,11 @@ programme_words = [re.compile(regex) for regex in [
     r'Trains?\b',
     r'Grand Designs',
     r'Selling Houses Australia',
+    r'Formula ?(One|1)|F1',
+]]
+programme_ignore = [re.compile(regex) for regex in [
+    r'Great (British|Continental) Railway Journeys',
+    r'The Railway: First Great Western',
 ]]
 
 def matches_any(regexes, text):
@@ -87,11 +102,15 @@ for channel in guide['data']['programs']:
     if matches_any(channel_ignore, channel_name):
         continue
     for event in channel['events']:
-        if matches_any(programme_words, event['main_title']):
+        title = event['main_title']
+        if matches_any(programme_words, title) and not matches_any(programme_ignore, title):
             event['channel'] = channel_name
-            pr_progs.append({
+            start_time = datetime.strptime(event['start_time'], '%Y-%m-%dT%H:%M:%S%z')
+            filtered_event = {
                 x: event[x] for x in ['main_title', 'secondary_title', 'start_time', 'channel'] if x in event.keys()
-            })
+            }
+            filtered_event['start'] = start_time.astimezone(london).strftime('%a %d %b %H:%M %Z')
+            pr_progs.append(filtered_event)
 print(json.dumps(pr_progs, indent=4))
 
 # Fetching a programme's details
