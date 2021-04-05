@@ -9,20 +9,36 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 arg_parser = argparse.ArgumentParser()
-arg_parser.add_argument('---tomorrow', action='store_true')
-args = arg_parser.parse_args()
+named_args, pos_args = arg_parser.parse_known_args()
 
 london = ZoneInfo('Europe/London')
 
 today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
+command = ' '.join(pos_args).lower()
 
-start_time = today
-if args.tomorrow:
-    start_time = today + timedelta(days=1)
+delta_days = 0
+weekdays = [re.compile(regex) for regex in [
+    r'mon', r'tue', r'wed', r'thu', r'fri', r'sat', r'sun'
+]]
+
+next_7 = []
+for day_number in range(today.weekday() + 1, today.weekday() + 8):
+    next_7.append(weekdays[day_number % 7])
+
+if 'tomorrow' in command:
+    delta_days = 1
+elif 'yesterday' in command:
+    delta_days = -1
+else:
+    for index, weekday in enumerate(next_7):
+        if weekday.search(command):
+            delta_days = index + 1
+            break
+
+start_time = start_time = today + timedelta(days=delta_days)
 
 
 region_id = 64320
-start_timestamp = 1616803200
 req = requests.get('https://www.freeview.co.uk/api/tv-guide', params={
     'nid': region_id,
     'start': int(start_time.timestamp())
@@ -68,26 +84,29 @@ guide = req.json()
                     },
 """
 
-channel_ignore = [re.compile(regex) for regex in [
+channel_ignore = [re.compile(regex, re.IGNORECASE) for regex in [
     r' HD$',
     r'\+1$',
     r'Radio',
     r'BBC [56]',
 ]]
-programme_words = [re.compile(regex) for regex in [
+programme_words = [re.compile(regex, re.IGNORECASE) for regex in [
     r'Peter Rabbit',
     r'Noddy Toyload',
     r'Postman Pat',
     r'Engineering',
-    r'Railway',
+    r'\bRail(\b|way)',
     r'Trains?\b',
     r'Grand Designs',
     r'Selling Houses Australia',
     r'Formula ?(One|1)|F1',
+    r'^New\b',
 ]]
-programme_ignore = [re.compile(regex) for regex in [
+programme_ignore = [re.compile(regex, re.IGNORECASE) for regex in [
     r'Great (British|Continental) Railway Journeys',
+    r'Scenic Railway|Night Train To Lisbon',
     r'The Railway: First Great Western',
+    r'Abandoned Engineering|Disasters Engineered|Engineering Disasters',
 ]]
 
 def matches_any(regexes, text):
