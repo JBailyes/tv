@@ -97,10 +97,10 @@ programme_words = [re.compile(regex, re.IGNORECASE) for regex in [
     r'Engineering',
     r'\bRail(\b|way)',
     r'Trains?\b',
-    r'Grand Designs',
+    r'New.*Grand Designs',
     r'Selling Houses Australia',
+    r'Kirsty.*Phil',
     r'Formula ?(One|1)|F1',
-    r'^New\b',
 ]]
 programme_ignore = [re.compile(regex, re.IGNORECASE) for regex in [
     r'Great (British|Continental) Railway Journeys',
@@ -130,7 +130,29 @@ for channel in guide['data']['programs']:
             }
             filtered_event['start'] = start_time.astimezone(london).strftime('%a %d %b %H:%M %Z')
             pr_progs.append(filtered_event)
-print(json.dumps(pr_progs, indent=4))
+
+col_widths = {}
+if len(pr_progs) > 0:
+    col_widths = { col: 0 for col in pr_progs[0].keys() }
+for prog in pr_progs:
+    for col in prog.keys():
+        col_widths[col] = max(col_widths[col], len(prog[col]))
+
+# for col, width in col_widths.items():
+#     if col in ['start_time']:
+#         continue
+#     print(f"{col:{width}}  ", end='')
+# print()
+
+for prog in pr_progs:
+    for col, width in col_widths.items():
+        if col in ['start_time']:
+            continue
+        value = ''
+        if col in prog.keys():
+            value = prog[col]
+        print(f"{value:{width}}  ", end='')
+    print()
 
 # Fetching a programme's details
 # https://www.freeview.co.uk/api/program?sid=4161&nid=64320&pid=crid://bbc.co.uk/nitro/episode/m000tjk1&start_time=2021-03-26T15%3A45%3A00%2B0000&duration=PT45M
