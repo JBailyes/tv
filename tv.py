@@ -4,14 +4,17 @@ import argparse
 import requests
 import json
 import re
+import yaml
 
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+# from zoneinfo import ZoneInfo
 
 arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('--html', action='store_true')
 named_args, pos_args = arg_parser.parse_known_args()
 
-london = ZoneInfo('Europe/London')
+# london = ZoneInfo('Europe/London')
+london = timezone(timedelta(hours=1), name='BST')
 region_id = 64320
 
 today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
@@ -38,6 +41,12 @@ else:
         if weekday.search(command):
             delta_days = index + 1
             break
+
+
+with open('tv.yml', 'r') as config_file:
+    config = yaml.safe_load(config_file)
+# print(config)
+
 
 def get_day(start_time):
     req = requests.get('https://www.freeview.co.uk/api/tv-guide', params={
@@ -85,37 +94,9 @@ def get_day(start_time):
                         },
     """
 
-    channel_ignore = [re.compile(regex, re.IGNORECASE) for regex in [
-        r' HD$',
-        r'\+1$',
-        r'Radio',
-        r'BBC [56]',
-    ]]
-    programme_words = [re.compile(regex, re.IGNORECASE) for regex in [
-        # r'Peter Rabbit',
-        # r'Noddy Toyload',
-        # r'Postman Pat',
-        r'Engineering',
-        r'\bRail(\b|way)',
-        r'Trains?\b',
-        r'New.*Grand Designs',
-        r'Selling Houses Australia',
-        r'Kirsty.*Phil',
-        r'Formula ?(One|1)|F1',
-        r'Home .*Perfect',
-        r'New.*Building The Dream',
-        r'New.*Location',
-    ]]
-    programme_ignore = [re.compile(regex, re.IGNORECASE) for regex in [
-        r'Great (British|Continental) Railway Journeys',
-        r'Scenic Railway|Night Train To Lisbon',
-        r'The Railway: First Great Western',
-        r'Abandoned Engineering|Disasters Engineered|Engineering Disasters',
-        r'Railway Murders',
-        r'Train of Events',
-        r'Around the World by Train',
-        r'^Impossible Engineering',
-    ]]
+    channel_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['channel_ignore']['regex']]
+    programme_include = [re.compile(regex, re.IGNORECASE) for regex in config['programmes']['regex']]
+    programme_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['programme_ignore']['regex']]
 
     def matches_any(regexes, text):
         for regex in regexes:
@@ -130,24 +111,29 @@ def get_day(start_time):
             continue
         for event in channel['events']:
             title = event['main_title']
-            if matches_any(programme_words, title) and not matches_any(programme_ignore, title):
+            if matches_any(programme_include, title) and not matches_any(programme_ignore, title):
                 event['channel'] = channel_name
                 start_time = datetime.strptime(event['start_time'], '%Y-%m-%dT%H:%M:%S%z')
                 filtered_event = {
                     x: event[x] for x in ['main_title', 'secondary_title', 'start_time', 'channel'] if x in event.keys()
                 }
                 filtered_event['start'] = start_time.astimezone(london).strftime('%a %d %b %H:%M %Z')
+                filtered_event['start_hhmm'] = start_time.astimezone(london).strftime('%H:%M')
                 pr_progs.append(filtered_event)
     return pr_progs
 
 progs = []
+progs_by_day = {}
 if range_days:
     for delta_days in range(range_days):
         start_time = start_time = today + timedelta(days=delta_days)
-        progs.extend(get_day(start_time))
+        progs_of_day = get_day(start_time)
+        progs.extend(progs_of_day)
+        progs_by_day[start_time.astimezone(london).strftime('%a %d %b')] = progs_of_day
 else:
     start_time = start_time = today + timedelta(days=delta_days)
     progs = get_day(start_time)
+    progs_by_day[start_time.astimezone(london).strftime('%a %d %b')] = progs
 
 col_widths = {}
 if len(progs) > 0:
@@ -157,21 +143,38 @@ for prog in progs:
     for col in prog.keys():
         col_widths[col] = max(col_widths[col], len(prog[col]))
 
-# for col, width in col_widths.items():
-#     if col in ['start_time']:
-#         continue
-#     print(f"{col:{width}}  ", end='')
-# print()
+if not named_args.html:
+    for prog in progs:
+        for col, width in col_widths.items():
+            if col in ['start_time']:
+                continue
+            value = ''
+            if col in prog.keys():
+                value = prog[col]
+            # print(f"{value:{width}}  ", end='')
+            format = '%-' + str(width) + 's  '
+            print(format % value, end='')
+        print()
 
-for prog in progs:
-    for col, width in col_widths.items():
-        if col in ['start_time']:
-            continue
-        value = ''
-        if col in prog.keys():
-            value = prog[col]
-        print(f"{value:{width}}  ", end='')
-    print()
+else:
+    print('<html>')
+    print('Updated', datetime.now().strftime('%a %d %b %H:%M %Z'))
+    print('<table>')
+    for day, progs_of_day in progs_by_day.items():
+        print('<tr><td><br><b>' + str(day) + '</b></td></tr>')
+
+        for prog in progs_of_day:
+            print('<tr>', end='')
+            print('<td>' + prog['main_title'], end='')
+            if 'secondary_title' in prog.keys():
+                print('<br>&nbsp;&nbsp;&angrt;&nbsp;' + prog['secondary_title'], end='')
+            print('</td>', end='')
+            for col in ['start_hhmm', 'channel']:
+                value = prog[col]
+                print('<td>' + value + '</td>', end='')
+            print('</tr>')
+
+    print('</table></html>')
 
 # Fetching a programme's details
 # https://www.freeview.co.uk/api/program?sid=4161&nid=64320&pid=crid://bbc.co.uk/nitro/episode/m000tjk1&start_time=2021-03-26T15%3A45%3A00%2B0000&duration=PT45M
