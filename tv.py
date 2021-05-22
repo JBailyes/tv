@@ -1,21 +1,25 @@
-#!/bin/env python3.9
+#!/bin/env python3
 
 import argparse
+import dateutil.tz
 import requests
-import json
 import re
 import yaml
 
 from datetime import datetime, timedelta, timezone
-# from zoneinfo import ZoneInfo
+# from zoneinfo import ZoneInfo  # Need Python 3.9
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--html', action='store_true')
 named_args, pos_args = arg_parser.parse_known_args()
 
-# london = ZoneInfo('Europe/London')
-london = timezone(timedelta(hours=1), name='BST')
-region_id = 64320
+with open('tv.yml', 'r') as config_file:
+    config = yaml.safe_load(config_file)
+# print(config)
+
+# tz = ZoneInfo(config['timezone_region'])  # Need Python 3.9
+tz = dateutil.tz.gettz(config['timezone_region'])
+region_id = config['freeview_region_id']
 
 today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)
 command = ' '.join(pos_args).lower()
@@ -41,11 +45,6 @@ else:
         if weekday.search(command):
             delta_days = index + 1
             break
-
-
-with open('tv.yml', 'r') as config_file:
-    config = yaml.safe_load(config_file)
-# print(config)
 
 
 def get_day(start_time):
@@ -117,8 +116,8 @@ def get_day(start_time):
                 filtered_event = {
                     x: event[x] for x in ['main_title', 'secondary_title', 'start_time', 'channel'] if x in event.keys()
                 }
-                filtered_event['start'] = start_time.astimezone(london).strftime('%a %d %b %H:%M %Z')
-                filtered_event['start_hhmm'] = start_time.astimezone(london).strftime('%H:%M')
+                filtered_event['start'] = start_time.astimezone(tz).strftime('%a %d %b %H:%M %Z')
+                filtered_event['start_hhmm'] = start_time.astimezone(tz).strftime('%H:%M')
                 pr_progs.append(filtered_event)
     return pr_progs
 
@@ -129,11 +128,11 @@ if range_days:
         start_time = start_time = today + timedelta(days=delta_days)
         progs_of_day = get_day(start_time)
         progs.extend(progs_of_day)
-        progs_by_day[start_time.astimezone(london).strftime('%a %d %b')] = progs_of_day
+        progs_by_day[start_time.astimezone(tz).strftime('%a %d %b')] = progs_of_day
 else:
     start_time = start_time = today + timedelta(days=delta_days)
     progs = get_day(start_time)
-    progs_by_day[start_time.astimezone(london).strftime('%a %d %b')] = progs
+    progs_by_day[start_time.astimezone(tz).strftime('%a %d %b')] = progs
 
 col_widths = {}
 if len(progs) > 0:
