@@ -13,6 +13,7 @@ The config file has sections for text (not implemented yet) or regular expressio
 - `channel_ignore`: Ingore results from channels whose names are matched by at least one of the text lines or regular expressions
 - `programmes`: Key text or regular expressions that are of interest in programme names
 - `programme_ignore`: Filter-out results that match the text or regular expressions, even if they matched in programme_words
+- `channel_specific`: Patterns for channel names and programme names can be associated, such that the programmes are only matched if they appear on a matching channgel
 
 Config file contents example:
 
@@ -33,4 +34,12 @@ programmes:
 programme_ignore:
     regex:
     - 'Cowboy Builders'
+
+channel_specific:
+    - channels:
+        regex:
+        - '^BBC'
+      programmes:
+        regex:
+        - 'Bake'  
 ```

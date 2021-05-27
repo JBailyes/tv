@@ -97,6 +97,14 @@ def get_day(start_time):
     programme_include = [re.compile(regex, re.IGNORECASE) for regex in config['programmes']['regex']]
     programme_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['programme_ignore']['regex']]
 
+    channel_specifics = []
+    for channel_specific in config['channel_specific']:
+        channel_specifics.append(
+        { 
+            'channel_regex': [re.compile(regex, re.IGNORECASE) for regex in channel_specific['channels']['regex']],
+            'prog_regex': [re.compile(regex, re.IGNORECASE) for regex in channel_specific['programmes']['regex']],
+        })
+
     def matches_any(regexes, text):
         for regex in regexes:
             if regex.search(text):
@@ -110,7 +118,15 @@ def get_day(start_time):
             continue
         for event in channel['events']:
             title = event['main_title']
-            if matches_any(programme_include, title) and not matches_any(programme_ignore, title):
+
+            channel_specific_match = False
+            for channel_specific in channel_specifics:
+                channel_specific_match |= matches_any(channel_specific['channel_regex'], channel_name) and \
+                    matches_any(channel_specific['prog_regex'], title)
+
+            if (channel_specific_match or matches_any(programme_include, title)) and \
+                    not matches_any(programme_ignore, title):
+
                 event['channel'] = channel_name
                 start_time = datetime.strptime(event['start_time'], '%Y-%m-%dT%H:%M:%S%z')
                 filtered_event = {
