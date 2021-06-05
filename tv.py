@@ -46,6 +46,7 @@ else:
             delta_days = index + 1
             break
 
+season_episode_regex = re.compile(r's[a-z]* *[0-9]+([, ]+)?e[a-z]* *[0-9]+', re.IGNORECASE)
 
 def get_day(start_time):
     req = requests.get('https://www.freeview.co.uk/api/tv-guide', params={
@@ -134,6 +135,35 @@ def get_day(start_time):
                 }
                 filtered_event['start'] = start_time.astimezone(tz).strftime('%a %d %b %H:%M %Z')
                 filtered_event['start_hhmm'] = start_time.astimezone(tz).strftime('%H:%M')
+
+                # Get extra details, if possible
+                req = requests.get('https://www.freeview.co.uk/api/program', params={
+                    'pid': event['program_id']
+                })
+                synopsis = None
+                if req.ok:
+                    extra_info = req.json()['data']['programs'][0]
+                    synopsi = extra_info['synopsis'].keys()
+                    if 'short' in synopsi:
+                        synopsis = extra_info['synopsis']['short']
+                    elif 'medium' in synopsi:
+                        synopsis = extra_info['synopsis']['medium']
+                    elif 'long' in synopsi:
+                        synopsis = extra_info['synopsis']['long']
+    
+                if synopsis:
+                    filtered_event['synopsis'] = synopsis
+                    match = season_episode_regex.search(synopsis)
+                    if match:
+                        filtered_event['synopsis_season'] = match.group(0)
+
+                    if title.endswith('...') and synopsis.startswith('...'):
+                        # Example title: "George Clarke's Build a New..."
+                        # Example synopsis start: "...Life in the Country. Property series ..."
+                        continuation = re.split(r'[.?!]', synopsis[3:])[0]
+                        title += continuation
+                        filtered_event['main_title'] = title
+
                 pr_progs.append(filtered_event)
     return pr_progs
 
@@ -183,6 +213,8 @@ else:
             print('<td>' + prog['main_title'], end='')
             if 'secondary_title' in prog.keys():
                 print('<br>&nbsp;&nbsp;&angrt;&nbsp;' + prog['secondary_title'], end='')
+            elif 'synopsis_season' in prog.keys():
+                print('<br>&nbsp;&nbsp;&angrt;&nbsp;' + prog['synopsis_season'], end='')
             print('</td>', end='')
             for col in ['start_hhmm', 'channel']:
                 value = prog[col]
@@ -190,6 +222,3 @@ else:
             print('</tr>')
 
     print('</table></html>')
-
-# Fetching a programme's details
-# https://www.freeview.co.uk/api/program?sid=4161&nid=64320&pid=crid://bbc.co.uk/nitro/episode/m000tjk1&start_time=2021-03-26T15%3A45%3A00%2B0000&duration=PT45M
