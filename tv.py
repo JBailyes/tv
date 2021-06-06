@@ -160,8 +160,8 @@ def get_day(start_time):
                     if title.endswith('...') and synopsis.startswith('...'):
                         # Example title: "George Clarke's Build a New..."
                         # Example synopsis start: "...Life in the Country. Property series ..."
-                        continuation = re.split(r'[.?!]', synopsis[3:])[0]
-                        title += continuation
+                        continuation = re.split(r'[.?!:]', synopsis[3:])[0]
+                        title = title[0:-3] + ' ' + continuation
                         filtered_event['main_title'] = title
 
                 pr_progs.append(filtered_event)
