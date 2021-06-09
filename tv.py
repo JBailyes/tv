@@ -48,6 +48,12 @@ else:
 
 season_episode_regex = re.compile(r's[a-z]* *[0-9]+([, ]+)?e[a-z]* *[0-9]+', re.IGNORECASE)
 
+# Example synopsis that starts with episode name:
+# "Cantilevers & Lifts. Secrets of a New York skyscraper that defies the laws of physics. The ..."
+# Assume that a short first sentence is an episode name:
+episode_title_regex = re.compile(r'^[^.?!:]{1,40}')
+not_episode_title_regex = re.compile(r'\b(series|show|documentary)\b', re.IGNORECASE)
+
 def get_day(start_time):
     req = requests.get('https://www.freeview.co.uk/api/tv-guide', params={
         'nid': region_id,
@@ -160,9 +166,20 @@ def get_day(start_time):
                     if title.endswith('...') and synopsis.startswith('...'):
                         # Example title: "George Clarke's Build a New..."
                         # Example synopsis start: "...Life in the Country. Property series ..."
-                        continuation = re.split(r'[.?!:]', synopsis[3:])[0]
-                        title = title[0:-3] + ' ' + continuation
+                        title_continuation, actual_synopsis = re.split(r'[.?!:]', synopsis[3:], maxsplit=1)
+                        title = title[0:-3] + ' ' + title_continuation
+                        synopsis = actual_synopsis.lstrip(' .:?!')
                         filtered_event['main_title'] = title
+                    
+                    episode_match = episode_title_regex.search(synopsis)
+                    if episode_match:
+                        possible_episode_title = episode_match.group(0)
+                        if not_episode_title_regex.search(possible_episode_title):
+                            pass
+                        elif 'synopsis_season' not in filtered_event.keys():
+                            filtered_event['synopsis_season'] = possible_episode_title
+                        else:
+                            filtered_event['synopsis_season'] += ': ' + possible_episode_title
 
                 pr_progs.append(filtered_event)
     return pr_progs
