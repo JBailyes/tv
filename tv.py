@@ -1,6 +1,7 @@
 #!/bin/env python3
 
 import argparse
+from typing import OrderedDict
 import dateutil.tz
 import requests
 import re
@@ -46,13 +47,36 @@ else:
             delta_days = index + 1
             break
 
-season_episode_regex = re.compile(r's[a-z]* *[0-9]+([, ]+)?e[a-z]* *[0-9]+', re.IGNORECASE)
+season_episode_regex = re.compile(r's[a-z]* *([0-9]+)([, :]+)?e[a-z]* *([0-9]+)', re.IGNORECASE)
 
 # Example synopsis that starts with episode name:
 # "Cantilevers & Lifts. Secrets of a New York skyscraper that defies the laws of physics. The ..."
 # Assume that a short first sentence is an episode name:
-episode_title_regex = re.compile(r'^[^.?!:]{1,40}')
+episode_title_regex = re.compile(r'^[^.?!:]{1,40}[.?!:]')
 not_episode_title_regex = re.compile(r'\b(series|show|documentary)\b', re.IGNORECASE)
+
+channel_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['channel_ignore']['regex']]
+programme_include = [re.compile(regex, re.IGNORECASE) for regex in config['programmes']['regex']]
+programme_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['programme_ignore']['regex']]
+synopsis_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['synopsis_ignore']['regex']]
+
+channel_specifics = []
+for channel_specific in config['channel_specific']:
+    channel_specifics.append(
+    { 
+        'channel_regex': [re.compile(regex, re.IGNORECASE) for regex in channel_specific['channels']['regex']],
+        'prog_regex': [re.compile(regex, re.IGNORECASE) for regex in channel_specific['programmes']['regex']],
+    })
+
+series_ignores = []
+for series_ignore in config['series_ignore']:
+    for prog_regex, series_array in series_ignore.items():
+        series_ignores.append(
+        {
+            'prog_regex': re.compile(prog_regex, re.IGNORECASE),
+            'series_numbers': series_array
+        })
+
 
 def get_day(start_time):
     req = requests.get('https://www.freeview.co.uk/api/tv-guide', params={
@@ -100,18 +124,6 @@ def get_day(start_time):
                         },
     """
 
-    channel_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['channel_ignore']['regex']]
-    programme_include = [re.compile(regex, re.IGNORECASE) for regex in config['programmes']['regex']]
-    programme_ignore = [re.compile(regex, re.IGNORECASE) for regex in config['programme_ignore']['regex']]
-
-    channel_specifics = []
-    for channel_specific in config['channel_specific']:
-        channel_specifics.append(
-        { 
-            'channel_regex': [re.compile(regex, re.IGNORECASE) for regex in channel_specific['channels']['regex']],
-            'prog_regex': [re.compile(regex, re.IGNORECASE) for regex in channel_specific['programmes']['regex']],
-        })
-
     def matches_any(regexes, text):
         for regex in regexes:
             if regex.search(text):
@@ -124,7 +136,7 @@ def get_day(start_time):
         if matches_any(channel_ignore, channel_name):
             continue
         for event in channel['events']:
-            title = event['main_title']
+            title = re.sub(r'\s+', ' ', event['main_title'])
 
             channel_specific_match = False
             for channel_specific in channel_specifics:
@@ -142,26 +154,35 @@ def get_day(start_time):
                 filtered_event['start'] = start_time.astimezone(tz).strftime('%a %d %b %H:%M %Z')
                 filtered_event['start_hhmm'] = start_time.astimezone(tz).strftime('%H:%M')
 
+                if 'secondary_title' in filtered_event:
+                    match = season_episode_regex.search(filtered_event['secondary_title'])
+                    if match:
+                        filtered_event['series_number'] = int(match.group(1))
+                        filtered_event['episode_number'] = int(match.group(3))
+
                 # Get extra details, if possible
                 req = requests.get('https://www.freeview.co.uk/api/program', params={
                     'pid': event['program_id']
                 })
                 synopsis = None
-                if req.ok:
+                if req.ok and len(req.json()['data']['programs']) > 0:
                     extra_info = req.json()['data']['programs'][0]
-                    synopsi = extra_info['synopsis'].keys()
-                    if 'short' in synopsi:
-                        synopsis = extra_info['synopsis']['short']
-                    elif 'medium' in synopsi:
-                        synopsis = extra_info['synopsis']['medium']
-                    elif 'long' in synopsi:
-                        synopsis = extra_info['synopsis']['long']
+                    if isinstance(extra_info['synopsis'], dict):
+                        synopsi = extra_info['synopsis'].keys()
+                        if 'short' in synopsi:
+                            synopsis = extra_info['synopsis']['short']
+                        elif 'medium' in synopsi:
+                            synopsis = extra_info['synopsis']['medium']
+                        elif 'long' in synopsi:
+                            synopsis = extra_info['synopsis']['long']
     
                 if synopsis:
                     filtered_event['synopsis'] = synopsis
                     match = season_episode_regex.search(synopsis)
                     if match:
                         filtered_event['synopsis_season'] = match.group(0)
+                        filtered_event['series_number'] = int(match.group(1))
+                        filtered_event['episode_number'] = int(match.group(3))
 
                     if title.endswith('...') and synopsis.startswith('...'):
                         # Example title: "George Clarke's Build a New..."
@@ -180,12 +201,22 @@ def get_day(start_time):
                             filtered_event['synopsis_season'] = possible_episode_title
                         else:
                             filtered_event['synopsis_season'] += ': ' + possible_episode_title
+                
+                ignore = False
+                if 'series_number' in filtered_event:
+                    for series_ignore in series_ignores:
+                        if series_ignore['prog_regex'].match(filtered_event['main_title']):
+                            ignore |= filtered_event['series_number'] in series_ignore['series_numbers']
+                
+                if 'synopsis' in filtered_event:
+                    ignore |= matches_any(synopsis_ignore, filtered_event['synopsis'])
 
-                pr_progs.append(filtered_event)
+                if not ignore:
+                    pr_progs.append(filtered_event)
     return pr_progs
 
 progs = []
-progs_by_day = {}
+progs_by_day = OrderedDict()
 if range_days:
     for delta_days in range(range_days):
         start_time = start_time = today + timedelta(days=delta_days)
@@ -202,7 +233,7 @@ if len(progs) > 0:
     for prog in progs:
         col_widths.update({ col: 0 for col in prog.keys() })
 for prog in progs:
-    for col in prog.keys():
+    for col in [key for key in prog.keys() if key not in ['series_number', 'episode_number']]:
         col_widths[col] = max(col_widths[col], len(prog[col]))
 
 if not named_args.html:
@@ -222,7 +253,7 @@ else:
     print('<html>')
     print('Updated', datetime.now().strftime('%a %d %b %H:%M %Z'))
     print('<table>')
-    for day, progs_of_day in progs_by_day.items():
+    for day, progs_of_day in reversed(progs_by_day.items()):
         print('<tr><td><br><b>' + str(day) + '</b></td></tr>')
 
         for prog in progs_of_day:
