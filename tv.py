@@ -188,6 +188,12 @@ def get_day(start_time):
                         # Example title: "George Clarke's Build a New..."
                         # Example synopsis start: "...Life in the Country. Property series ..."
                         title_continuation, actual_synopsis = re.split(r'[.?!:]', synopsis[3:], maxsplit=1)
+                        # Some programmes have two-part titles, e.g. Kirstie and Phil's Love It or List It: Brilliant Builds
+                        lioli_bb = ' Brilliant Builds'
+                        if actual_synopsis.startswith(lioli_bb):
+                            title_continuation += ':' + actual_synopsis[0: len(lioli_bb)]
+                            actual_synopsis = actual_synopsis[len(lioli_bb):]
+                            
                         title = title[0:-3] + ' ' + title_continuation
                         synopsis = actual_synopsis.lstrip(' .:?!')
                         filtered_event['main_title'] = title
